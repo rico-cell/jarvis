@@ -1884,3 +1884,1400 @@ AI工作流程:
 | skill-creator | `skills/skill-creator/` | SKILL.md, scripts/ |
 | skill-seekers | `skill_seekers/` | doc_scraper.py, enhance_skill_local.py, package_skill.py, configs/ |
 
+
+- 若 safe_mode=on：后台作业仅在用户确认后启动
+- 若 confirm_external_calls=on：启动前展示执行计划并征求确认
+
+---
+
+## Skill Orchestration & Lifecycle（技能编排与生命周期）
+
+目标：当现有能力不足时，自动提供“生成/注册/挂接”新技能的流程，让JARVIS按需扩展能力，而不是卡住任务。
+
+决策策略：
+1) 现有技能可满足 → 直接使用（例如 旅行 → docx + xlsx + pptx）
+2) 需要长期复用/固定版式 → 生成微型技能（skill-creator）
+3) 用户提供文档/链接/站点 → 使用 skill-seekers 自动生成Skill（抓取→增强→打包）
+
+命令清单：
+- /jarvis skills list                          # 查看已注册技能
+- /jarvis skills create-micro name=<name> triggers=<词1,词2> base=<pptx|docx|xlsx|pdf|custom>
+- /jarvis skills generate-from-docs name=<name> urls="<url1,url2,...>" domain=<root> enhance=<on|off>
+- /jarvis skills register path=<dir>           # 将本地技能注册到 marketplace 与系统
+- /jarvis skills attach intent=<意图键> skill=<name> mode=<primary|fallback>
+- /jarvis skills detach intent=<意图键> skill=<name>
+- /jarvis skills enable <name> | disable <name>
+- /jarvis skills delete <name>
+
+中文别名示例：
+- 创建微型技能 旅行PPT → /jarvis skills create-micro name=travel-ppt triggers=旅行,PPT,日本 base=pptx
+- 用链接生成技能 我的文档 → /jarvis skills generate-from-docs name=mydocs urls="https://docs...,https://wiki..." domain=https://docs.example.com enhance=on
+- 注册技能 路径 → /jarvis skills register path=skills/travel-ppt
+- 挂接到意图 旅行 → /jarvis skills attach intent=旅行/行程/攻略 skill=travel-ppt mode=primary
+
+流程保障：
+- 安全与成本：遵守 JARVIS 设置（safe_mode、confirm_external_calls、max_cost_per_task）
+- 后台作业：所有生成/抓取过程以 jobId 运行；支持 /jarvis jobs / status / cancel
+- 产物注册：完成后自动更新 marketplace.json 与 .cursorrules 技能清单（如需），并在 Intent Router 增加映射
+- 可观测性（可选）：发送 PostHog 事件（ActionStarted/ActionSucceeded/ActionFailed + jobId）
+
+典型示例：
+1) 旅行PPT能力不足 → 生成 travel-ppt 微型技能
+   - 触发：/jarvis skills create-micro name=travel-ppt triggers=旅行,PPT,日本 base=pptx
+   - 结果：新增可复用模板（封面/行程/预算/相册），被 Intent Router 匹配
+
+2) 项目文档链接 → 生成 mydocs 技能
+   - 触发：/jarvis skills generate-from-docs name=mydocs urls="https://repo/docs,https://wiki" domain=https://repo/docs enhance=on
+   - 步骤：确认计划→创建jobId→抓取→本地增强→打包→注册→挂接意图（如“项目/文档/API”）
+   - 结果：可被自然语言路由使用（“根据项目文档生成…”）
+
+与 Intent Router 的协作：
+- 若某意图无匹配技能：提示用户选择 A) 临时用现有近似组合，或 B) 生成微型技能，或 C) 用 skill-seekers 从用户提供文档/站点生成技能。
+
+---
+
+## MCP工具使用指南
+
+### 1. Context7 - 库文档查询（最高优先级）
+
+**使用场景：**
+- 使用任何第三方库、框架或组件之前
+- 需要了解API用法、参数、属性时
+- 查询最新的最佳实践和示例代码
+
+**工作流程：**
+1. 使用 `mcp_context7_resolve-library-id` 查找库的ID
+2. 使用 `mcp_context7_get-library-docs` 获取详细文档
+3. 基于文档编写代码
+
+**示例：**
+```
+用户: "使用Vue 3创建一个组件"
+AI行为:
+1. ✅ 调用Context7查询Vue 3组件API
+2. ✅ 获取最新的Composition API用法
+3. ✅ 基于文档实现组件
+4. ❌ 不允许直接基于记忆编写
+```
+
+---
+
+### 2. Semgrep - 代码安全扫描
+
+**使用场景：**
+- 编写完成代码后，必须进行安全扫描
+- 处理敏感操作（认证、数据库、文件操作）时
+- 重构代码或合并代码前
+- 用户明确要求安全检查时
+
+**工作流程：**
+1. 代码编写完成后，使用 `mcp_Semgrep_security_check` 扫描
+2. 如发现问题，必须修复后再继续
+3. 可使用 `mcp_Semgrep_semgrep_scan` 进行更详细的扫描
+
+**强制规则：**
+- ⚠️ 涉及安全相关代码，必须扫描
+- ⚠️ 发现安全问题，必须修复或向用户说明风险
+- ⚠️ 不允许忽略安全警告
+
+---
+
+### 3. shadcn-ui - UI组件库
+
+**使用场景：**
+- 需要创建React UI组件时
+- 需要现代化、美观的UI设计时
+- 构建Web应用界面时
+
+**工作流程：**
+1. 使用 `mcp_shadcn-ui_list_components` 查看可用组件
+2. 使用 `mcp_shadcn-ui_get_component` 获取组件源码
+3. 使用 `mcp_shadcn-ui_get_component_demo` 查看使用示例
+4. 基于官方代码实现
+
+**最佳实践：**
+- 优先使用shadcn-ui组件而不是自己从头编写
+- 保持组件的一致性和设计规范
+
+---
+
+### 4. GitHub - 代码仓库管理
+
+**使用场景：**
+- 查看仓库代码和文件
+- 创建和管理Issue、PR
+- 检查提交历史和分支
+- 代码审查和协作
+
+**常用操作：**
+- `mcp_github_get_file_contents` - 读取文件内容
+- `mcp_github_create_issue` - 创建Issue
+- `mcp_github_create_pull_request` - 创建PR
+- `mcp_github_search_code` - 搜索代码
+- `mcp_github_list_commits` - 查看提交历史
+
+**工作原则：**
+- 提交前必须检查代码质量
+- PR描述必须清晰完整
+- 不允许强制推送到主分支
+
+---
+
+### 5. PostHog - 产品分析和事件追踪
+
+**使用场景：**
+- 需要添加用户行为追踪时
+- 创建产品分析面板时
+- 进行A/B测试实验时
+- 管理功能开关（Feature Flags）时
+
+**工作流程：**
+1. 使用 `mcp_posthog_docs-search` 查询集成文档
+2. 使用 `mcp_posthog_create-feature-flag` 创建功能开关
+3. 使用 `mcp_posthog_experiment-create` 创建A/B测试
+4. 使用相关工具创建Dashboard和Insight
+
+**集成步骤：**
+- Next.js项目：查询PostHog集成文档
+- 先创建Feature Flag，再询问用户是否添加到代码
+- 使用文档中的示例代码进行集成
+
+---
+
+### 6. Ref - 文档搜索和阅读
+
+**使用场景：**
+- Context7无法提供信息时的备选方案
+- 需要搜索私有文档或特定资源时
+- 需要阅读在线文档内容时
+
+**工作流程：**
+1. 使用 `mcp_Ref_ref_search_documentation` 搜索文档
+2. 使用 `mcp_Ref_ref_read_url` 读取具体URL内容
+3. 基于文档内容回答问题或编写代码
+
+---
+
+### 7. Replicate (Flux) - AI图像生成
+
+**使用场景：**
+- 需要生成图片、图标、插图时
+- 需要生成SVG矢量图时
+- 需要为项目创建视觉素材时
+
+**可用功能：**
+- `mcp_replicate-flux-mcp_generate_image` - 生成图片
+- `mcp_replicate-flux-mcp_generate_svg` - 生成SVG
+- `mcp_replicate-flux-mcp_generate_image_variants` - 生成多个变体
+
+**使用建议：**
+- 提供清晰详细的提示词
+- 根据用途选择合适的尺寸和格式
+
+---
+
+### 8. Postman - API测试和管理
+
+**使用场景：**
+- 需要测试后端API接口时
+- 调试HTTP请求和响应时
+- 管理API集合和文档时
+- 进行API自动化测试时
+- 需要分享API文档给团队时
+
+**主要功能：**
+- 📡 发送各种HTTP请求（GET、POST、PUT、DELETE等）
+- 📚 管理API Collection和请求集合
+- 🔑 管理环境变量和认证信息
+- 🧪 编写和执行API测试脚本
+- 📝 生成和导出API文档
+
+**工作流程：**
+1. 创建或获取API Collection
+2. 配置请求参数、Headers、Body
+3. 发送请求并查看响应
+4. 编写测试断言验证结果
+5. 导出文档或分享给团队
+
+**使用建议：**
+- 在实现前端API调用前，先用Postman测试接口
+- 将常用的API请求保存到Collection中
+- 使用环境变量管理不同环境的配置（开发/测试/生产）
+- 编写测试脚本实现自动化验证
+
+**与其他MCP的配合：**
+- **Context7** - 查询API库（如Axios、Fetch）的最佳用法
+- **Semgrep** - 扫描API调用代码的安全问题
+- **PostHog** - 追踪API调用的成功率和性能
+
+---
+
+### 9. Railway - 部署和基础设施管理
+
+**使用场景：**
+- 需要部署应用到生产环境时
+- 管理多个环境（开发、测试、生产）时
+- 需要配置数据库、Redis等服务时
+- 查看应用日志和监控指标时
+- 管理环境变量和密钥时
+
+**主要功能：**
+- 🚀 **应用部署** - 快速部署 Next.js、React、Node.js 等应用
+- 🗄️ **数据库管理** - 创建和管理 PostgreSQL、MySQL、MongoDB、Redis
+- 🔧 **服务管理** - 启动、停止、重启服务
+- 📊 **监控和日志** - 实时查看应用日志和性能指标
+- 🌐 **域名管理** - 配置自定义域名和SSL证书
+- 🔑 **环境变量** - 安全管理配置和密钥
+
+**工作流程：**
+1. 连接 GitHub 仓库
+2. 配置构建命令和启动命令
+3. 设置环境变量
+4. 部署应用
+5. 监控日志和性能
+
+**使用建议：**
+- 开发阶段使用 Railway 创建测试环境
+- 将敏感信息（API密钥、数据库连接）存储在 Railway 环境变量中
+- 使用 Railway 的日志功能快速定位生产环境问题
+- 为不同环境（开发/测试/生产）创建独立的 Railway 项目
+
+**与其他MCP的配合：**
+- **GitHub** - 从仓库自动部署到 Railway
+- **Semgrep** - 部署前确保代码安全
+- **PostHog** - 在生产环境中追踪用户行为
+- **Context7** - 查询部署相关库（如 Docker、环境配置）的文档
+
+---
+
+### 10. Sequential Thinking - 复杂问题解决
+
+**使用场景：**
+- 面对复杂的多步骤任务时
+- 需要系统性分析和规划时
+- 问题范围不明确需要逐步探索时
+- 需要多角度思考的架构决策时
+
+**工作方式：**
+- 将复杂问题分解为可管理的步骤
+- 逐步推理，允许修正和回溯
+- 生成和验证解决方案假设
+- 提供结构化的思考过程
+
+---
+
+### 11. Magic MCP - AI组件构建器 🆕
+
+**使用场景：**
+- 需要快速生成UI组件时
+- 寻找组件设计灵感时
+- 需要Logo或图标设计时
+- 优化和改进现有组件时
+- 构建React/Vue组件库时
+
+**主要功能：**
+- 🎨 **组件构建器** - AI生成完整的UI组件代码
+- 💡 **设计灵感** - 获取组件设计建议和参考
+- 🔍 **Logo搜索** - 搜索和生成Logo设计
+- ✨ **组件优化** - 重构和改进现有组件
+
+**可用工具：**
+- `21st_magic_component_builder` - 根据描述生成完整组件
+- `21st_magic_component_inspiration` - 获取组件设计灵感
+- `logo_search` - 搜索Logo设计参考
+- `21st_magic_component_refiner` - 优化和重构组件
+
+**工作流程：**
+
+**场景1: 从零创建组件**
+```
+1. 使用 21st_magic_component_inspiration 获取设计灵感
+2. 使用 21st_magic_component_builder 生成组件代码
+3. 使用 shadcn-ui MCP 集成标准组件
+4. 使用 Context7 查询最佳实践
+5. 使用 Semgrep 安全扫描
+```
+
+**场景2: 优化现有组件**
+```
+1. 使用 21st_magic_component_refiner 分析组件
+2. 获取优化建议（性能、可访问性、代码质量）
+3. 使用 Context7 查询优化技术
+4. 应用改进并测试
+```
+
+**场景3: 品牌Logo设计**
+```
+1. 使用 logo_search 搜索设计参考
+2. 使用 Replicate MCP 生成Logo变体
+3. 使用 brand-guidelines skill 应用品牌规范
+4. 使用 canvas-design skill 创建最终设计
+```
+
+**与其他MCP的配合：**
+- **shadcn-ui** - Magic生成创意组件，shadcn提供标准组件
+- **Context7** - Magic生成代码后，Context7验证最佳实践
+- **Replicate** - Magic提供设计方向，Replicate生成图像
+- **Semgrep** - Magic生成组件后，Semgrep扫描安全
+- **artifacts-builder** - Magic组件集成到复杂应用中
+
+**最佳实践：**
+- 使用Magic快速原型，然后用shadcn-ui标准化
+- Magic生成后必须用Context7验证代码质量
+- Logo和品牌元素结合brand-guidelines使用
+- 生成的组件必须通过Semgrep安全检查
+
+**典型工作流：**
+```
+设计阶段:
+Magic (灵感) → Replicate (图像) → brand-guidelines (品牌)
+
+开发阶段:
+Magic (生成组件) → Context7 (验证) → shadcn-ui (标准化) → Semgrep (安全)
+
+优化阶段:
+Magic (重构建议) → webapp-testing (测试) → artifacts-builder (集成)
+```
+
+---
+
+## Skills技能系统使用指南
+
+### 文档处理技能（最高优先级）
+
+#### docx - Word文档处理
+**使用场景：** 处理Word文档(.docx)时必须使用
+- 创建新的Word文档
+- 编辑现有文档并保留格式
+- 处理追踪更改（红线审阅）
+- 添加评论和批注
+- 提取文本内容
+
+**工作流程：**
+- **创建文档**: 使用 docx-js (JavaScript/TypeScript)
+- **编辑文档**: 使用 Document library (Python + OOXML)
+- **红线审阅**: 使用专门的 Redlining workflow
+- **配合**: Context7 查询 python-docx 文档 + Semgrep 安全扫描
+
+**关键文件位置：** `skills/document-skills/docx/`
+
+---
+
+#### pdf - PDF处理
+**使用场景：** 处理PDF文档时必须使用
+- 提取文本和表格
+- 创建新的PDF
+- 合并/拆分PDF
+- 填写PDF表单
+- 添加水印、旋转页面
+
+**核心库：**
+- `pypdf` - 基本操作（合并、拆分、旋转）
+- `pdfplumber` - 文本和表格提取
+- `reportlab` - 创建新PDF
+
+**配合**: Context7 查询处理库文档
+
+**关键文件位置：** `skills/document-skills/pdf/`
+
+---
+
+#### pptx - PowerPoint处理
+**使用场景：** 处理PowerPoint演示文稿时必须使用
+- 创建新演示文稿（从头或使用模板）
+- 编辑现有演示文稿
+- 应用主题和布局
+- 添加图表、图像、动画
+
+**三种创建方式：**
+1. **从头创建**: html2pptx工作流（HTML转PPT）
+2. **使用模板**: 复制重排模板幻灯片
+3. **编辑现有**: OOXML XML编辑
+
+**设计原则：**
+- 18个专业配色方案可选
+- 必须考虑内容匹配合适的颜色和布局
+- 使用两栏布局展示图表/表格
+
+**配合**: theme-factory美化 + Replicate生成图片 + Context7查询库文档
+
+**关键文件位置：** `skills/document-skills/pptx/`
+
+---
+
+#### xlsx - Excel处理
+**使用场景：** 处理Excel电子表格时必须使用
+- 创建带公式和格式的电子表格
+- 读取和分析数据
+- 修改现有表格并保留公式
+- 数据分析和可视化
+
+**强制要求：**
+- ✅ **零公式错误**：必须无 #REF!, #DIV/0!, #VALUE! 等错误
+- ✅ **使用公式**：必须用Excel公式，禁止Python计算后硬编码
+- ✅ **颜色编码**（金融模型）：
+  - 蓝色文字 = 输入值
+  - 黑色文字 = 公式
+  - 绿色文字 = 内部链接
+  - 红色文字 = 外部链接
+  - 黄色背景 = 关键假设
+- ✅ **公式重算**：使用 `recalc.py` 重新计算所有公式
+
+**核心库：**
+- `pandas` - 数据分析
+- `openpyxl` - 公式和格式
+
+**配合**: Context7查询pandas/openpyxl文档
+
+**关键文件位置：** `skills/document-skills/xlsx/`
+
+---
+
+### 开发技能
+
+#### artifacts-builder - 复杂前端应用构建
+**使用场景：** 需要复杂前端artifacts时使用（不是简单的单文件HTML）
+- 需要状态管理的应用
+- 需要路由功能
+- 需要shadcn/ui组件
+- 复杂的React应用
+
+**技术栈：** React 18 + TypeScript + Vite + Parcel + Tailwind CSS + shadcn/ui
+
+**工作流程：**
+1. `init-artifact.sh` 初始化项目
+2. 开发React应用
+3. `bundle-artifact.sh` 打包为单个HTML
+4. 分享给用户
+
+**配合**: shadcn-ui MCP获取组件 + Context7查询React文档 + webapp-testing测试
+
+**关键文件位置：** `skills/artifacts-builder/`
+
+---
+
+#### mcp-builder - MCP服务器开发
+**使用场景：** 创建MCP服务器集成外部API时必须使用
+- 集成新的外部服务
+- 开发Python或TypeScript MCP服务器
+- 需要完整的开发指南和最佳实践
+
+**四阶段流程：**
+1. **深度调研** - 研究API文档、MCP协议、Agent设计原则
+2. **实现** - 基于语言特定最佳实践编写代码
+3. **审查优化** - 代码质量检查、测试和构建
+4. **创建评估** - 编写10个复杂评估问题
+
+**配合**: Context7查询MCP SDK + Postman测试API + Semgrep安全扫描
+
+**关键文件位置：** `skills/mcp-builder/`
+
+---
+
+#### webapp-testing - Web应用测试
+**使用场景：** 测试本地Web应用时使用
+- 验证前端功能
+- 调试UI行为
+- 捕获浏览器截图
+- 查看浏览器日志
+
+**核心工具：** Playwright + `with_server.py`辅助脚本
+
+**配合**: Context7查询Playwright文档
+
+**关键文件位置：** `skills/webapp-testing/`
+
+---
+
+#### fullstack-workflow - 全栈工作流 🆕
+**使用场景：** 构建完整全栈应用时使用 - 这是一个综合性Skill，整合多个功能
+- 📊 需要数据可视化和图表
+- 📝 需要生成API文档（OpenAPI/Swagger）
+- 🐳 需要Docker容器化部署
+- 🧪 需要自动化API测试
+- 📈 需要生产环境监控和日志
+
+**五大核心能力：**
+1. **Data Visualization** - 使用Plotly/Chart.js/D3.js创建图表
+2. **API Documentation** - Postman Collection → OpenAPI规范
+3. **Docker Deployment** - 多阶段构建、优化镜像、Railway部署
+4. **API Testing** - 生成测试套件、负载测试
+5. **Monitoring & Logging** - 结构化日志、性能追踪、错误监控
+
+**典型工作流程：**
+```
+阶段1: 开发
+→ 实现API → Postman测试 → 生成测试 → 前端+数据可视化
+
+阶段2: 文档化
+→ 导出Postman → 生成OpenAPI → 应用主题 → Railway托管文档
+
+阶段3: 容器化
+→ 创建Dockerfile → docker-compose → 优化镜像 → Semgrep扫描
+
+阶段4: 部署
+→ Railway部署 → 环境变量 → 自定义域名 → SSL
+
+阶段5: 监控
+→ 配置日志 → PostHog追踪 → 监控面板 → 告警设置
+```
+
+**关键脚本：**
+- `scripts/plotly_charts.py` - Plotly图表模板（5种配色方案）
+- `scripts/postman_to_openapi.py` - Postman→OpenAPI转换器
+- `scripts/docker_optimize.py` - Dockerfile优化分析器
+- `scripts/postman_to_tests.py` - 测试生成器
+- `scripts/load_test.py` - 负载测试工具
+
+**参考文档：**
+- `references/color_schemes.md` - 6种专业配色方案
+- `references/docker_best_practices.md` - Docker生产最佳实践
+- `references/openapi_template.yaml` - OpenAPI规范模板
+- `references/api_best_practices.md` - API设计指南
+- `references/monitoring_setup.md` - 监控配置指南
+
+**Docker模板：**
+- `assets/docker-templates/node-express/` - Node.js + Express
+- `assets/docker-templates/python-flask/` - Python + Flask
+- `assets/docker-templates/react-app/` - React SPA
+
+**与MCP的完美配合：**
+| 功能 | 使用的MCP | 协同效果 |
+|------|----------|---------|
+| 数据可视化 | PostHog + Context7 | 获取数据 + 查询图表库文档 |
+| API文档 | Postman + GitHub + Railway | 导出Collection + 版本控制 + 托管 |
+| Docker部署 | Railway + Semgrep | 部署 + 安全扫描 |
+| API测试 | Postman + GitHub | 测试用例 + CI/CD |
+| 监控 | PostHog + Railway | 用户追踪 + 基础设施监控 |
+
+**使用示例：**
+```
+用户: "构建一个TODO API，包含文档和部署"
+
+AI工作流程:
+1. ✅ 识别需要fullstack-workflow skill
+2. ✅ 读取 skills/fullstack-workflow/fullstack-workflow/SKILL.md
+3. ✅ 实现API端点
+4. ✅ 使用Postman MCP测试接口
+5. ✅ 使用scripts/postman_to_openapi.py生成文档
+6. ✅ 使用Docker模板创建Dockerfile
+7. ✅ 使用scripts/docker_optimize.py优化
+8. ✅ 使用Semgrep MCP扫描安全问题
+9. ✅ 使用Railway MCP部署应用
+10. ✅ 使用PostHog MCP设置监控
+11. ✅ 使用scripts/plotly_charts.py创建监控面板
+```
+
+**适用项目类型：**
+- REST API服务
+- GraphQL API
+- 微服务架构
+- 全栈Web应用
+- 数据驱动的应用
+- 需要完整DevOps流程的项目
+
+**关键文件位置：** `skills/fullstack-workflow/fullstack-workflow/`
+
+---
+
+#### bmad-integration - BMAD敏捷工作流集成 🆕
+**使用场景：** 需要结构化项目规划和代理协作开发时使用
+- 📋 需要系统化PRD/Architecture文档创建
+- 🤝 管理复杂多代理工作流（Analyst→PM→Architect→Dev→QA）
+- 📂 文档分片（Document Sharding）实现上下文聚焦
+- 📖 故事驱动敏捷开发（Story-Driven Development）
+- 🏢 企业级项目规划和团队协作
+- 🔄 Brownfield项目分析和改进
+
+**核心概念（来自BMAD-METHOD ⭐19.7k）：**
+1. **Agentic Planning** - 10个专业AI代理协作规划
+2. **Context-Engineered Development** - 消除上下文丢失
+3. **Document Sharding** - 按Epic分片大文档
+4. **Story-Driven Workflow** - 详细故事包含完整上下文
+
+**10个BMAD代理：**
+- 📊 **Analyst** (Mary) - 市场研究、竞品分析、项目简报
+- 📋 **PM** (John) - PRD创建、需求管理、优先级排序
+- 🎨 **UX Expert** (Jordan) - UI/UX规范、设计系统
+- 🏗️ **Architect** (Sam) - 系统架构、技术选型
+- ✅ **PO** (Taylor) - 文档验证、分片管理
+- 📝 **SM** (Casey) - 故事创建、Sprint规划
+- 💻 **Dev** (Jamie) - 代码实现、文件追踪
+- 🧪 **QA** (Quinn) - 质量审查、代码重构
+- 🧙 **BMad Master** - 框架指导
+- 🎭 **Orchestrator** - 代理协调
+
+**工作流程（Greenfield全栈）：**
+```
+规划阶段（Web UI/Chat）:
+Analyst → PM → UX Expert → Architect → PO(验证) → PO(分片文档)
+
+开发阶段（IDE）:
+SM(创建故事) → Dev(实现) → QA(审查) → 循环
+```
+
+**文档模板：**
+- `Project Brief` - 初始项目构思
+- `PRD Template` - 产品需求文档（含Epic和User Stories）
+- `Architecture Template` - 技术架构文档
+- `Story Template` - 开发故事（含完整上下文）
+
+**文档分片（Document Sharding）：**
+```
+docs/
+├── prd.md              # 完整PRD（规划阶段）
+├── architecture.md     # 完整架构
+├── prd/                # 按Epic分片（开发阶段）
+│   ├── epic-1-auth/
+│   │   ├── requirements.md
+│   │   └── stories.md
+│   └── epic-2-dashboard/
+│       └── ...
+└── architecture/       # 按Epic分片
+    ├── epic-1-auth/
+    │   └── architecture.md
+    └── ...
+```
+
+**与你的Stack集成：**
+| BMAD特性 | 你的工具 | 协同方式 |
+|----------|---------|---------|
+| Analyst | Context7 + Sequential Thinking | 结构化研究+分析 |
+| PM | mcp-builder + internal-comms | PRD模板+团队沟通 |
+| Architect | fullstack-workflow + Context7 | 架构模板+实现模式 |
+| Dev | artifacts-builder + shadcn-ui | 故事实现+UI组件 |
+| QA | webapp-testing + Semgrep | 测试+安全扫描 |
+| Document Sharding | (新功能) | 上下文聚焦开发 |
+
+**关键文件：**
+- `references/agent-personas.md` - 10个代理完整定义
+- `references/document-templates.md` - PRD/架构/故事模板
+- `scripts/shard_documents.py` - 文档分片脚本
+
+**使用示例：**
+```
+用户: "需要系统化的项目规划和团队协作模式"
+
+AI工作流程:
+1. ✅ 识别需要bmad-integration skill
+2. ✅ 读取 skills/bmad-integration/bmad-integration/SKILL.md
+3. ✅ 采用Analyst persona进行市场研究
+4. ✅ 使用PM persona创建结构化PRD
+5. ✅ 使用Architect persona设计系统架构
+6. ✅ 使用PO进行文档验证
+7. ✅ 运行shard_documents.py分片文档
+8. ✅ SM创建详细开发故事
+9. ✅ Dev基于故事实现（配合fullstack-workflow）
+10. ✅ QA审查（配合Semgrep + webapp-testing）
+```
+
+**适用场景：**
+- ✅ 企业级生产应用开发
+- ✅ 多人团队协作项目
+- ✅ 复杂需求的系统化管理
+- ✅ 需要详细文档和可追溯性
+- ✅ Brownfield项目改进和增强
+- ✅ 长期维护的大型项目
+
+**BMAD vs 其他Skills：**
+- **fullstack-workflow**: 实现层（代码+部署）
+- **bmad-integration**: 规划层（PRD+架构+故事）
+- **最佳实践**: BMAD规划 → fullstack-workflow实现
+
+**关键文件位置：** `skills/bmad-integration/bmad-integration/`
+
+---
+
+### 创意设计技能
+
+#### canvas-design - 画布视觉设计
+**使用场景：** 创建静态视觉设计时使用
+- 海报、艺术作品
+- PNG/PDF格式的设计
+- 需要博物馆级品质的作品
+
+**两步流程：**
+1. 创建设计哲学（aesthetic movement）
+2. 用代码表达视觉
+
+**特色：** 100+字体库、极简文字、视觉为主
+
+**配合**: Replicate生成图片 + brand-guidelines应用品牌
+
+**关键文件位置：** `skills/canvas-design/`
+
+---
+
+#### algorithmic-art - 算法生成艺术
+**使用场景：** 创建算法艺术、生成艺术时使用
+- 使用p5.js的交互式艺术
+- 流场、粒子系统
+- 种子随机性（可重现）
+
+**两步流程：**
+1. 创建算法哲学
+2. 用p5.js代码表达
+
+**特色：** 交互式HTML artifact、种子导航、参数化控制
+
+**配合**: Context7查询p5.js文档
+
+**关键文件位置：** `skills/algorithmic-art/`
+
+---
+
+#### slack-gif-creator - Slack动画GIF
+**使用场景：** 为Slack创建动画GIF时使用
+- 消息GIF（最大2MB，480x480）
+- Emoji GIF（最大64KB，128x128，挑战性高）
+
+**13种动画原语：** 抖动、弹跳、旋转、脉冲、淡入淡出、缩放、爆炸、摆动、滑动、翻转、变形、移动、万花筒
+
+**配合**: Context7查询Pillow文档
+
+**关键文件位置：** `skills/slack-gif-creator/`
+
+---
+
+### 企业技能
+
+#### brand-guidelines - Anthropic品牌指南
+**使用场景：** 需要应用Anthropic品牌时使用
+- 为artifacts应用官方品牌颜色和字体
+- Anthropic相关项目
+
+**品牌元素：**
+- 颜色：深色#141413、浅色#faf9f5、橙色#d97757、蓝色#6a9bcc、绿色#788c5d
+- 字体：标题Poppins、正文Lora
+
+**关键文件位置：** `skills/brand-guidelines/`
+
+---
+
+#### internal-comms - 内部沟通文档
+**使用场景：** 编写内部沟通文档时使用
+- 3P更新（进度/计划/问题）
+- 公司新闻通讯、FAQ
+- 状态报告、项目更新
+
+**配合**: GitHub创建Issue/PR描述
+
+**关键文件位置：** `skills/internal-comms/`
+
+---
+
+#### theme-factory - 主题样式工厂
+**使用场景：** 美化演示文稿或文档时使用
+- 10个专业预设主题
+- 自定义主题生成
+- 为幻灯片/文档/HTML应用专业外观
+
+**10个预设主题：** Ocean Depths、Sunset Boulevard、Forest Canopy、Modern Minimalist等
+
+**配合**: pptx skill美化演示文稿
+
+**关键文件位置：** `skills/theme-factory/`
+
+---
+
+### 元技能
+
+#### skill-creator - 技能创建指南
+**使用场景：** 创建新技能时使用
+- 提供完整的技能创建流程
+- 技能结构指导
+
+**关键文件位置：** `skills/skill-creator/`
+
+---
+
+#### skill-seekers - 自动文档转Skill工具 🆕
+**使用场景：** 自动化创建框架/库的Skills时使用
+- 🌐 将任何文档网站转换为Claude Skill
+- 🤖 AI自动增强SKILL.md质量
+- 📦 一键打包为可分发的.zip文件
+- ⚡ 15-40分钟自动生成生产级Skill
+
+**核心功能：**
+1. **文档爬取** - 自动抓取整个文档网站
+2. **智能分类** - 按主题组织内容（API/指南/教程等）
+3. **AI增强** - 使用Claude提取最佳示例和概念
+4. **自动打包** - 生成可上传的Skill包
+
+**三大核心工具：**
+- `doc_scraper.py` - 主爬虫工具（支持预设配置或自定义）
+- `enhance_skill_local.py` - 本地AI增强（使用Claude Code，无需API key）
+- `package_skill.py` - Skill打包工具
+
+**预设配置（8个）：**
+- `configs/godot.json` - Godot游戏引擎
+- `configs/react.json` - React框架
+- `configs/vue.json` - Vue.js框架
+- `configs/django.json` - Django Web框架
+- `configs/fastapi.json` - FastAPI框架
+- 还可自定义任何文档网站
+
+**完整工作流：**
+```
+步骤1: 爬取文档
+python doc_scraper.py --config configs/react.json --enhance-local
+→ 自动爬取React官方文档
+→ 智能分类为：getting_started, components, hooks, api等
+→ AI增强生成详细SKILL.md（500+行）
+
+步骤2: 打包Skill
+python package_skill.py output/react/
+→ 生成 react.zip（包含SKILL.md + references/）
+
+步骤3: 部署使用
+→ 上传到Claude或放入skills/目录
+→ 立即可用！
+
+耗时: 20-40分钟（vs 手动创建需要数天）
+```
+
+**与现有系统集成：**
+| Skill Seekers功能 | 你的工具 | 协同方式 |
+|-----------------|---------|---------|
+| 爬取文档 | Context7 | 自动生成 → Context7查询细节 |
+| AI增强 | Sequential Thinking | 自动提取 → 深度分析 |
+| 生成Skill | skill-creator | 自动化 → 手动调优 |
+| 打包分发 | GitHub | 打包 → 版本控制 |
+
+**使用示例：**
+```
+用户: "为Three.js创建一个Skill"
+
+AI工作流程:
+1. ✅ 识别需要skill-seekers工具
+2. ✅ 创建配置文件 configs/threejs.json
+3. ✅ 运行爬虫: python doc_scraper.py --config configs/threejs.json --enhance-local
+4. ✅ 等待爬取完成（20-30分钟）
+5. ✅ AI增强SKILL.md（60秒）
+6. ✅ 打包: python package_skill.py output/threejs/
+7. ✅ 将threejs.zip移到skills/目录或上传Claude
+8. ✅ 更新marketplace.json注册新skill
+9. ✅ 更新.cursorrules添加使用说明
+10. ✅ 立即可用！
+```
+
+**适用场景：**
+- ✅ 快速创建框架/库的Skills（React/Vue/Django等）
+- ✅ 为游戏引擎创建Skills（Godot/Unity/Unreal）
+- ✅ 内部API文档转Skill（公司私有文档）
+- ✅ 学习新技术时创建参考Skill
+- ✅ 扩展现有Skills系统
+
+**与skill-creator对比：**
+- **skill-creator**: 手动创建自定义Skill，完全控制
+- **skill-seekers**: 自动化创建文档Skill，快速生成
+- **最佳实践**: 
+  - 框架文档 → 用skill-seekers自动生成
+  - 自定义工作流 → 用skill-creator手动创建
+  - 两者结合 → skill-seekers生成基础 + skill-creator调优
+
+**关键文件位置：** `skill_seekers/`
+
+**输出位置：** `skill_seekers/output/` （生成的Skills）
+
+---
+
+## 完整开发工作流程（更新版）
+
+### 阶段1：需求分析和调研
+1. **理解需求** - 明确用户要实现什么功能
+2. **识别技术栈** - 确定需要使用的库、框架、组件
+3. **识别Skill需求** - 判断是否需要专业技能：
+   - 📄 文档处理？→ 使用 docx/pdf/pptx/xlsx
+   - 💻 复杂前端？→ 使用 artifacts-builder
+   - 🔌 MCP开发？→ 使用 mcp-builder
+   - 🎨 视觉设计？→ 使用 canvas-design/algorithmic-art
+   - 🏢 企业文档？→ 使用 internal-comms/theme-factory
+4. **API测试** - 如涉及API调用，使用Postman先测试接口
+5. **Context7调研** - 查询所有相关库的最新文档
+6. **Ref补充** - Context7不足时使用Ref搜索文档
+7. **澄清疑问** - 向用户确认所有不明确的需求
+
+### 阶段2：设计和规划
+1. **架构设计** - 复杂任务使用Sequential Thinking分析
+2. **Skill选择** - 确定使用哪些Skills并读取相应的SKILL.md
+3. **UI设计** - 检查shadcn-ui是否有合适组件
+4. **安全考虑** - 识别需要安全审查的代码部分
+5. **追踪规划** - 确定需要添加的事件追踪点
+
+### 阶段3：实现
+1. **应用Skill指南** - 严格遵循选定Skill的SKILL.md指导流程
+   - 文档处理：遵循相应skill的工作流程
+   - 开发任务：使用artifacts-builder或mcp-builder流程
+   - 设计任务：遵循两步流程（哲学→表达）
+2. **基于文档编写** - 严格按照Context7查询的文档实现
+3. **使用标准组件** - 优先使用shadcn-ui等标准组件
+4. **添加追踪** - 集成PostHog事件追踪（如需要）
+5. **代码质量** - 保持代码清晰、注释完整
+
+### 阶段4：验证和安全
+1. **Semgrep扫描** - 必须进行安全扫描
+2. **Skill特定验证** - 执行Skill特定的验证步骤：
+   - xlsx：使用 `recalc.py` 重算公式，确保零错误
+   - pptx：生成缩略图检查布局
+   - docx：转换为markdown验证内容
+   - webapp：使用webapp-testing测试功能
+3. **修复问题** - 解决所有发现的安全问题和验证错误
+4. **测试验证** - 确保功能正常工作
+5. **代码审查** - 检查代码质量和规范
+
+### 阶段5：提交和部署
+1. **GitHub管理** - 创建合适的Commit和PR
+2. **文档更新** - 更新相关文档说明
+3. **Feature Flag** - 使用PostHog管理新功能发布
+4. **Railway部署** - 部署到测试/生产环境，配置环境变量
+5. **清理临时文件** - 删除临时创建的文件
+
+---
+
+## 强制规则清单
+
+### ✅ 必须做的事情（MCP）
+- 使用Context7查询任何第三方库的用法
+- 编写涉及安全的代码后运行Semgrep扫描
+- 使用shadcn-ui组件而不是重复造轮子
+- 实现API调用前使用Postman测试接口
+- 遇到不确定的问题时及时澄清
+- 基于最新文档而非记忆编写代码
+
+### ✅ 必须做的事情（Skills - 新增）
+- **文档处理**: 处理Word/Excel/PPT/PDF时必须使用document-skills
+  - Word: 使用docx skill，不要自己从头编写
+  - Excel: 必须用公式不要硬编码，使用recalc.py重算
+  - PowerPoint: 使用pptx skill，选择合适的配色方案
+  - PDF: 使用pdf skill处理提取和创建
+- **复杂前端**: 必须使用artifacts-builder而非简单HTML
+- **MCP开发**: 必须遵循mcp-builder的四阶段流程
+- **Skill指南**: 严格按照选定Skill的SKILL.md执行
+- **读取完整文档**: 读取Skill的SKILL.md时不设置行数限制
+
+### ❌ 禁止的行为
+- 不查询文档就假设API用法
+- 不测试API就直接在代码中实现调用
+- 忽略Semgrep安全警告
+- 跳过代码质量检查
+- 基于过时的记忆编写代码
+- 在不确定时继续开发
+- **文档处理时不使用document-skills**（新增）
+- **Excel中硬编码计算值而不用公式**（新增）
+- **跳过Skill特定的验证步骤**（新增）
+
+### ⚠️ 特别注意（MCP）
+- 涉及认证、授权、数据库操作的代码必须安全扫描
+- 调用第三方API前必须用Postman验证接口的可用性和格式
+- 创建PR前必须检查代码质量
+- Feature Flag必须先创建后再添加到代码
+- 复杂任务必须使用Sequential Thinking进行规划
+- API密钥和敏感信息必须使用环境变量，不允许硬编码
+
+### ⚠️ 特别注意（Skills - 新增）
+- **文档处理**: 必须使用document-skills，不允许从头编写
+- **Excel公式**: 必须用公式不硬编码，用recalc.py验证
+- **MCP开发**: 必须完成所有四个阶段（调研、实现、审查、评估）
+- **前端artifacts**: 复杂应用用artifacts-builder，简单页面用HTML
+- **Skill文档**: 实施前必须完整阅读相应的SKILL.md文件
+
+---
+
+## MCP + Skills 综合决策树
+
+### 📋 任务类型判断流程（更新版）
+
+```
+开始任务
+    │
+    ├─ 是新项目/系统/应用开发？🆕🔥
+    │   └─ ✅ 优先使用 BMAD-First 工作流
+    │        ├─ 简单项目: Analyst → PM → Architect → Dev
+    │        ├─ 中等项目: Analyst → PM → UX → Architect → PO → SM → Dev → QA
+    │        └─ 复杂项目: 完整BMAD流程 + 文档分片
+    │        
+    │        【代理自动调用MCP/Skills】
+    │        - Analyst调用: Context7, Sequential Thinking, Ref
+    │        - PM调用: Context7, internal-comms, mcp-builder
+    │        - Architect调用: fullstack-workflow, Context7, Railway
+    │        - Dev调用: artifacts-builder, shadcn-ui, Postman
+    │        - QA调用: webapp-testing, Semgrep
+    │
+    ├─ 需要处理文档？(Word/Excel/PPT/PDF) 🆕
+    │   └─ ✅ 使用 document-skills + Context7 查询处理库文档
+    │        ├─ Word → docx skill
+    │        ├─ Excel → xlsx skill + recalc.py验证
+    │        ├─ PowerPoint → pptx skill + theme-factory
+    │        └─ PDF → pdf skill
+    │
+    ├─ 需要开发复杂前端应用？🆕
+    │   └─ ✅ 使用 artifacts-builder + shadcn-ui + webapp-testing
+    │        └─ 配合 Context7 查询 React 文档
+    │
+    ├─ 需要创建MCP服务器？🆕
+    │   └─ ✅ 使用 mcp-builder + Context7 + Postman + Semgrep
+    │        └─ 遵循四阶段流程（调研→实现→审查→评估）
+    │
+    ├─ 需要构建完整全栈项目？🆕
+    │   └─ ✅ 使用 fullstack-workflow + Postman + Railway + PostHog
+    │        ├─ 数据可视化（Plotly/Chart.js）
+    │        ├─ API文档（OpenAPI）
+    │        ├─ Docker部署（多阶段构建）
+    │        ├─ 自动化测试
+    │        └─ 生产监控
+    │
+    ├─ 需要视觉设计？🆕
+    │   └─ ✅ 使用 canvas-design + Replicate + brand-guidelines
+    │        └─ 遵循两步流程（设计哲学→视觉表达）
+    │
+    ├─ 需要创意编程艺术？🆕
+    │   └─ ✅ 使用 algorithmic-art + Context7 查询 p5.js
+    │        └─ 遵循两步流程（算法哲学→p5.js实现）
+    │
+    ├─ 需要Slack动画？🆕
+    │   └─ ✅ 使用 slack-gif-creator + Context7 查询 Pillow
+    │        └─ 注意尺寸限制（消息2MB，emoji 64KB）
+    │
+    ├─ 需要使用第三方库/框架？
+    │   └─ ✅ 使用 Context7 查询最新文档
+    │
+    ├─ 需要调用API接口？
+    │   └─ ✅ 使用 Postman 测试接口
+    │        └─ 验证通过后使用 Context7 查询HTTP库文档
+    │
+    ├─ 需要创建UI组件？
+    │   ├─ 标准组件？→ shadcn-ui MCP 查找现成组件
+    │   ├─ 创意组件？→ Magic MCP 生成创意组件 🆕
+    │   └─ 自定义组件？→ Magic MCP (灵感) → Context7 (实现)
+    │
+    ├─ 需要Logo设计？🆕
+    │   └─ ✅ Magic MCP (logo_search) → Replicate → brand-guidelines
+    │        └─ 搜索参考 → 生成变体 → 应用品牌
+    │
+    ├─ 需要生成图片/图标？
+    │   └─ ✅ 使用 Replicate (Flux) 生成图像
+    │
+    ├─ 需要GitHub仓库操作？
+    │   └─ ✅ 使用 GitHub MCP 工具
+    │
+    ├─ 需要产品数据追踪？
+    │   └─ ✅ 使用 PostHog 创建事件/实验/Feature Flag
+    │
+    ├─ 需要部署应用/管理基础设施？
+    │   └─ ✅ 使用 Railway 部署和配置环境
+    │
+    ├─ 需要查找文档资料？
+    │   └─ ✅ 优先 Context7，其次 Ref
+    │
+    ├─ 需要美化演示文稿？🆕
+    │   └─ ✅ 使用 theme-factory + pptx skill
+    │        └─ 10个预设主题可选
+    │
+    ├─ 需要内部沟通文档？🆕
+    │   └─ ✅ 使用 internal-comms + GitHub
+    │        └─ 3P更新、FAQ、状态报告等
+    │
+    ├─ 任务复杂度高？
+    │   └─ ✅ 使用 Sequential Thinking 分解问题
+    │
+    └─ 代码编写完成？
+        └─ ✅ 使用 Semgrep 安全扫描（必须）
+             └─ ✅ 执行 Skill 特定验证（如适用）
+```
+
+### 🔄 典型工作流程组合（更新版）
+
+| 场景 | MCP + Skills 组合 | 执行顺序 |
+|-----|------------------|---------|
+| **全栈项目开发** 🆕 | fullstack-workflow → Postman → Railway → PostHog → Semgrep | 实现API → 测试 → 生成文档 → Docker化 → 部署 → 监控 |
+| **文档处理** 🆕 | xlsx/docx/pptx skill → Context7 → Semgrep | Skill流程 → 查库文档 → 扫安全 → 验证（recalc.py等） |
+| **复杂前端开发** 🆕 | artifacts-builder → shadcn-ui → webapp-testing → Semgrep | 初始化 → 获取组件 → 测试 → 扫安全 |
+| **MCP服务器开发** 🆕 | mcp-builder → Context7 → Postman → Semgrep | 四阶段流程 → 查MCP SDK → 测API → 扫安全 |
+| **视觉设计** 🆕 | canvas-design → Replicate → brand-guidelines | 设计哲学 → 生成图像 → 应用品牌 |
+| **演示文稿** 🆕 | pptx skill → theme-factory → Replicate | 创建PPT → 应用主题 → 生成配图 |
+| **AI组件生成** 🆕 | Magic MCP → Context7 → shadcn-ui → Semgrep | 生成组件 → 验证代码 → 标准化 → 安全扫描 |
+| **Logo设计** 🆕 | Magic MCP (logo_search) → Replicate → brand-guidelines → canvas-design | 搜索灵感 → 生成 → 品牌化 → 精修 |
+| **组件优化** 🆕 | Magic MCP (refiner) → Context7 → webapp-testing | 分析优化点 → 查询技术 → 测试验证 |
+| **开发新功能** | Context7 → shadcn-ui → Semgrep → PostHog | 查文档 → 选组件 → 扫安全 → 加追踪 |
+| **集成API** | Postman → Context7 → Semgrep → PostHog | 测接口 → 查库文档 → 扫安全 → 加追踪 |
+| **UI开发** | Magic MCP → shadcn-ui → Context7 → Replicate | 生成创意 → 标准组件 → 查文档 → 配图 |
+| **代码审查** | Semgrep → Context7 → Sequential Thinking | 扫安全 → 验证用法 → 深度分析 |
+| **功能发布** | GitHub → PostHog → Semgrep → Railway | 提交代码 → 创建Flag → 最终扫描 → 部署上线 |
+| **生产部署** | Semgrep → GitHub → Railway → PostHog | 扫安全 → 推送代码 → 部署应用 → 监控数据 |
+
+---
+
+## 示例工作流程（更新版）
+
+### 示例0：处理Excel财务报表（Skills新增）
+```
+用户: "创建一个季度财务分析报表"
+
+AI工作流程:
+1. ✅ 识别需要xlsx skill
+2. ✅ 读取完整的 skills/document-skills/xlsx/SKILL.md
+3. ✅ 使用Context7查询pandas和openpyxl文档
+4. ✅ 使用openpyxl创建Excel文件：
+   - 蓝色文字标注输入值
+   - 黑色文字用公式计算（不硬编码！）
+   - 绿色文字标注内部链接
+   - 黄色背景标注关键假设
+5. ✅ 使用recalc.py重新计算所有公式
+6. ✅ 检查公式错误（必须零错误）
+7. ✅ 使用Semgrep扫描安全问题
+```
+
+### 示例1：创建React组件
+```
+用户: "创建一个登录表单组件"
+
+AI工作流程:
+1. ✅ 使用shadcn-ui_list_components查看可用表单组件
+2. ✅ 获取Button、Input、Form组件的源码和示例
+3. ✅ 使用Context7查询React Hook Form最佳实践
+4. ✅ 实现登录表单
+5. ✅ 使用Semgrep扫描安全问题（认证相关）
+6. ✅ 询问是否需要添加PostHog事件追踪
+```
+
+### 示例2：集成第三方API
+```
+用户: "集成Stripe支付"
+
+AI工作流程:
+1. ✅ 使用Context7查询Stripe库文档
+2. ✅ 了解最新的API使用方法和最佳实践
+3. ✅ 向用户澄清具体的支付场景和需求
+4. ✅ 实现支付集成代码
+5. ✅ 使用Semgrep扫描支付相关代码（高风险）
+6. ✅ 添加PostHog事件追踪支付流程
+7. ✅ 创建Feature Flag控制支付功能发布
+```
+
+### 示例3：集成和测试第三方API
+```
+用户: "调用GitHub API获取仓库信息"
+
+AI工作流程:
+1. ✅ 使用Postman测试GitHub API接口
+2. ✅ 验证请求参数、Headers和响应格式
+3. ✅ 使用Context7查询HTTP客户端库（如Axios）文档
+4. ✅ 在代码中实现API调用
+5. ✅ 使用Semgrep扫描API密钥和安全问题
+6. ✅ 添加PostHog事件追踪API调用状态
+```
+
+### 示例4：代码审查和优化
+```
+用户: "帮我审查这段代码"
+
+AI工作流程:
+1. ✅ 使用Semgrep扫描代码安全问题
+2. ✅ 检查是否遵循最佳实践
+3. ✅ 使用Context7验证库的使用是否正确
+4. ✅ 提供具体的改进建议
+5. ✅ 如需要，使用Sequential Thinking分析复杂逻辑
+```
+
+### 示例5：部署应用到生产环境
+```
+用户: "把博客系统部署到生产环境"
+
+AI工作流程:
+1. ✅ 使用Semgrep进行最终安全扫描
+2. ✅ 使用GitHub提交并推送代码
+3. ✅ 使用Railway创建生产环境项目
+4. ✅ 配置环境变量（数据库连接、API密钥等）
+5. ✅ 配置构建和启动命令
+6. ✅ 部署应用并验证运行状态
+7. ✅ 配置自定义域名和SSL证书
+8. ✅ 使用PostHog监控生产环境用户行为
+9. ✅ 查看Railway日志确保应用正常运行
+```
+
+### 示例6：创建MCP服务器（Skills新增）
+```
+用户: "创建一个连接Notion API的MCP服务器"
+
+AI工作流程:
+1. ✅ 识别需要mcp-builder skill
+2. ✅ 读取完整的 skills/mcp-builder/SKILL.md
+3. ✅ 阶段1 - 深度调研:
+   - 使用Ref或web搜索获取Notion API文档
+   - 使用Context7查询MCP SDK文档
+   - 研究Agent设计原则
+4. ✅ 阶段2 - 实现:
+   - 使用Context7查询Python/TypeScript最佳实践
+   - 使用Postman测试Notion API接口
+   - 编写MCP服务器代码
+5. ✅ 阶段3 - 审查优化:
+   - 使用Semgrep扫描安全问题
+   - 代码质量检查
+6. ✅ 阶段4 - 创建评估:
+   - 编写10个复杂评估问题
+   - 验证MCP服务器功能
+```
+
+### 示例7：创建品牌演示文稿（Skills新增）
+```
+用户: "创建一个公司季度报告演示文稿"
+
+AI工作流程:
+1. ✅ 识别需要pptx skill + theme-factory
+2. ✅ 读取完整的 skills/document-skills/pptx/SKILL.md
+3. ✅ 使用Context7查询pptxgenjs文档
+4. ✅ 根据内容选择合适的配色方案（18个可选）
+5. ✅ 使用html2pptx工作流创建演示文稿
+6. ✅ 使用Replicate生成配图和图标
+7. ✅ 使用theme-factory应用专业主题
+8. ✅ 生成缩略图验证布局
+9. ✅ 使用brand-guidelines应用Anthropic品牌（如需要）
+10. ✅ 使用GitHub存储设计资产
+```
+
+### 示例8：全栈项目完整开发（Skills新增）🆕
+```
+用户: "开发一个用户管理API，包含数据可视化、文档和生产部署"
+
+AI工作流程:
+1. ✅ 识别需要fullstack-workflow skill（综合性项目）
+2. ✅ 读取完整的 skills/fullstack-workflow/fullstack-workflow/SKILL.md
+
+【阶段1: API开发】
+3. ✅ 使用Context7查询Express/Flask框架文档
+4. ✅ 实现用户CRUD端点（GET/POST/PUT/DELETE）
+5. ✅ 使用Postman MCP测试所有接口
+6. ✅ 验证请求参数、响应格式、错误处理
+
+【阶段2: API文档生成】
+7. ✅ 从Postman导出API Collection
+8. ✅ 使用scripts/postman_to_openapi.py转换为OpenAPI规范
+9. ✅ 使用theme-factory skill美化文档样式
+10. ✅ 使用Railway MCP托管API文档站点
+
+【阶段3: 数据可视化】
+11. ✅ 使用PostHog MCP获取用户统计数据
+12. ✅ 使用scripts/plotly_charts.py创建图表
+13. ✅ 选择Corporate配色方案
+14. ✅ 创建用户增长趋势图、活跃度饼图、地域分布热力图
+
+【阶段4: Docker容器化】
+15. ✅ 选择合适的Docker模板（assets/docker-templates/node-express/）
+16. ✅ 创建多阶段Dockerfile
+17. ✅ 创建docker-compose.yml（API + PostgreSQL + Redis）
+18. ✅ 使用scripts/docker_optimize.py优化镜像
+19. ✅ 使用Semgrep MCP扫描Dockerfile安全问题
+
+【阶段5: 自动化测试】
+20. ✅ 使用scripts/postman_to_tests.py生成测试用例
+21. ✅ 创建单元测试（Jest/Pytest）
+22. ✅ 创建集成测试（完整用户流程）
+23. ✅ 使用scripts/load_test.py进行负载测试（100并发用户）
+
+【阶段6: 生产部署】
+24. ✅ 使用GitHub MCP推送代码到仓库
+25. ✅ 使用Railway MCP创建生产环境
+26. ✅ 配置环境变量（DATABASE_URL、JWT_SECRET等）
+27. ✅ 部署应用并配置自定义域名
+28. ✅ 启用SSL证书
+
+【阶段7: 监控和日志】
+29. ✅ 配置结构化日志（参考references/logging_best_practices.md）
+30. ✅ 使用PostHog MCP设置事件追踪
+31. ✅ 创建监控Dashboard（使用Data Visualization workflow）
+32. ✅ 配置错误告警（Sentry集成）
+33. ✅ 使用Railway查看实时日志和性能指标
+
+【最终交付】
+✅ API服务运行在 https://api.example.com
+✅ API文档托管在 https://docs.example.com
+✅ 监控面板可访问 https://dashboard.example.com
+✅ 所有代码在GitHub仓库，包含完整测试
+✅ Docker镜像优化到<150MB
+✅ API响应时间<100ms，可承载1000+并发
+```
+
+---
+
+## 总结
+
+### 🎯 11个MCP服务器 + 18个Skills 协同工作的价值
+
+遵循这些规则可以确保：
+- ✨ **代码质量高、基于最新文档** (Context7 + Ref)
+- 🔒 **安全性得到保障** (Semgrep)
+- 🎨 **UI美观且一致** (shadcn-ui + Magic MCP + Replicate)
+- 🚀 **开发效率提升** (所有MCP协同)
+- 📊 **产品数据可追踪** (PostHog)
+- 🔌 **API集成可靠** (Postman)
+- 🤝 **团队协作顺畅** (GitHub)
+- 🚂 **部署流程自动化** (Railway)
+- 🧠 **复杂问题可解** (Sequential Thinking)
+- 🎨 **AI组件快速生成** (Magic MCP) 🆕
+- 📄 **文档处理专业** (document-skills: docx/pdf/pptx/xlsx) 🆕
+- 💻 **开发工作流程完善** (artifacts-builder/mcp-builder/webapp-testing/fullstack-workflow) 🆕
+- 🎨 **创意设计能力强大** (canvas-design/algorithmic-art/slack-gif-creator) 🆕
+- 🏢 **企业文档规范** (brand-guidelines/internal-comms/theme-factory) 🆕
+- 🏗️ **全栈开发一站式** (fullstack-workflow: 可视化+文档+部署+测试+监控) 🆕
+- 🤝 **敏捷规划系统化** (bmad-integration: 代理协作+文档分片+故事驱动) 🆕
+- 🤖 **Skill自动化生成** (skill-seekers: 文档爬取+AI增强+自动打包) 🆕
+
+### 💡 核心理念（更新版）
+
+**先调研，后实施；先测试，后集成；先扫描，后提交；先澄清，后假设。**
+
+**识别Skill需求，遵循Skill指南；文档处理用Skills，复杂任务分阶段。** 🆕
+
+### 📊 MCP + Skills 使用频率建议（更新版）
+
+| 优先级 | 工具/技能 | 类型 | 使用频率 | 适用阶段 |
+|-------|---------|------|---------|---------|
+| 🔴 最高 | **docx/pdf/pptx/xlsx** | Skill | 文档处理时 | 需求+实现+验证 🆕 |
+| 🔴 最高 | Context7 | MCP | 每次使用库 | 需求+实现 |
+| 🔴 最高 | Semgrep | MCP | 每次写代码 | 验证+提交 |
+| 🟠 高 | **bmad-integration** | Skill | 企业项目规划时 | 规划+协作 🆕 |
+| 🟠 高 | **fullstack-workflow** | Skill | 全栈项目时 | 全流程 🆕 |
+| 🟠 高 | **artifacts-builder** | Skill | 复杂前端时 | 实现 🆕 |
+| 🟠 高 | **mcp-builder** | Skill | MCP开发时 | 全流程 🆕 |
+| 🟠 高 | shadcn-ui | MCP | UI开发时 | 实现 |
+| 🟠 高 | Magic MCP | MCP | UI组件生成时 | 实现+设计 🆕 |
+| 🟠 高 | Postman | MCP | API调用时 | 需求+实现 |
+| 🟡 中 | **webapp-testing** | Skill | 测试时 | 验证 🆕 |
+| 🟡 中 | **canvas-design** | Skill | 视觉设计时 | 实现 🆕 |
+| 🟡 中 | **theme-factory** | Skill | 美化文档时 | 实现 🆕 |
+| 🟡 中 | GitHub | MCP | 协作时 | 提交+部署 |
+| 🟡 中 | PostHog | MCP | 需要追踪时 | 规划+部署 |
+| 🟡 中 | Railway | MCP | 部署时 | 部署+运维 |
+| 🟢 按需 | **algorithmic-art** | Skill | 创意艺术时 | 实现 🆕 |
+| 🟢 按需 | **slack-gif-creator** | Skill | Slack动画时 | 实现 🆕 |
+| 🟢 按需 | **brand-guidelines** | Skill | Anthropic品牌时 | 实现 🆕 |
+| 🟢 按需 | **internal-comms** | Skill | 内部沟通时 | 实现 🆕 |
+| 🟢 按需 | Replicate | MCP | 需要图片时 | 实现 |
+| 🟢 按需 | Ref | MCP | Context7不足时 | 需求 |
+| 🟢 按需 | Sequential Thinking | MCP | 任务复杂时 | 规划 |
+
+---
+
+## 🎓 Skills 关键文件位置速查
+
+| Skill | 位置 | 核心文件 |
+|-------|-----|---------|
+| docx | `skills/document-skills/docx/` | SKILL.md, docx-js.md, ooxml.md |
+| pdf | `skills/document-skills/pdf/` | SKILL.md, reference.md, forms.md |
+| pptx | `skills/document-skills/pptx/` | SKILL.md, html2pptx.md, ooxml.md |
+| xlsx | `skills/document-skills/xlsx/` | SKILL.md, recalc.py |
+| artifacts-builder | `skills/artifacts-builder/` | SKILL.md, scripts/ |
+| mcp-builder | `skills/mcp-builder/` | SKILL.md, reference/ |
+| webapp-testing | `skills/webapp-testing/` | SKILL.md, scripts/, examples/ |
+| fullstack-workflow | `skills/fullstack-workflow/fullstack-workflow/` | SKILL.md, scripts/, references/, assets/docker-templates/ |
+| bmad-integration | `skills/bmad-integration/bmad-integration/` | SKILL.md, references/, scripts/shard_documents.py |
+| canvas-design | `skills/canvas-design/` | SKILL.md, canvas-fonts/ |
+| algorithmic-art | `skills/algorithmic-art/` | SKILL.md, templates/ |
+| slack-gif-creator | `skills/slack-gif-creator/` | SKILL.md, core/, templates/ |
+| brand-guidelines | `skills/brand-guidelines/` | SKILL.md |
+| internal-comms | `skills/internal-comms/` | SKILL.md, examples/ |
+| theme-factory | `skills/theme-factory/` | SKILL.md, themes/, theme-showcase.pdf |
+| skill-creator | `skills/skill-creator/` | SKILL.md, scripts/ |
+| skill-seekers | `skill_seekers/` | doc_scraper.py, enhance_skill_local.py, package_skill.py, configs/ |
+
